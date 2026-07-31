@@ -1,0 +1,31 @@
+{
+  "name": "nearshare",
+  "version": "2.1.0",
+  "description": "Cross-device gesture file transfer — drag from phone to PC like OriginOS",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:client": "vite",
+    "dev:server": "node --watch server.js",
+    "build": "vite build",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@fastify/multipart": "^8.3.1",
+    "@fastify/static": "^7.0.4",
+    "fastify": "^4.28.1",
+    "framer-motion": "^11.0.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

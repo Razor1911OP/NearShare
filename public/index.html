@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#070b14" />
+        <meta
+            name="description"
+            content="Transfer files and folders across trusted devices on the same Wi-Fi using drag-and-drop or touch gestures — no cloud required."
+        />
+        <title>NearShare — Gesture File Transfer</title>
+        <link rel="stylesheet" href="/app.css" />
+    </head>
+    <body>
+        <!-- ═══════════════════════════════════════════════════════
+         App shell
+    ════════════════════════════════════════════════════════ -->
+        <main class="shell">
+            <!-- ── Hero ──────────────────────────────────────────── -->
+            <section
+                class="hero"
+                aria-label="App introduction and device pairing"
+            >
+                <!-- Left: headline -->
+                <div class="card hero-card">
+                    <div class="eyebrow">
+                        <span class="pulse" aria-hidden="true"></span>
+                        Close-network sharing
+                    </div>
+
+                    <h1>Drag, pick, and drop files across nearby devices.</h1>
+
+                    <p class="lead">
+                        Share files and entire folders between trusted laptops
+                        and phones on the same Wi-Fi. Every transfer starts from
+                        files you personally select or drag into this page —
+                        nothing leaves your network.
+                    </p>
+
+                    <div
+                        class="actions"
+                        role="group"
+                        aria-label="Quick file actions"
+                    >
+                        <button
+                            class="btn primary"
+                            id="quick-files"
+                            type="button"
+                        >
+                            📁 Choose files
+                        </button>
+                        <button class="btn" id="quick-folder" type="button">
+                            🗂 Choose folder
+                        </button>
+                        <button class="btn warn" id="arm-drag" type="button">
+                            ✋ Arm super drag
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right: status + pairing -->
+                <aside
+                    class="card side-card"
+                    aria-label="Connection status and device pairing"
+                >
+                    <div class="status-row">
+                        <span class="status-pill">
+                            <span
+                                id="status-dot"
+                                class="dot"
+                                aria-hidden="true"
+                            ></span>
+                            <span id="status-text">Starting…</span>
+                        </span>
+                        <button class="btn" id="refresh-info" type="button">
+                            ↻ Refresh
+                        </button>
+                    </div>
+
+                    <div class="pairing" aria-label="Pairing code">
+                        <span class="muted small"
+                            >Pairing code — share with trusted devices</span
+                        >
+                        <strong id="pair-code" aria-live="polite"
+                            >------</strong
+                        >
+                        <span class="muted small">
+                            Open <code>http://&lt;this-pc-ip&gt;:8787</code> on
+                            any device connected to the same Wi-Fi, then enter
+                            this code to pair.
+                        </span>
+                    </div>
+
+                    <form id="pair-form" novalidate>
+                        <label for="device-name">This device's name</label>
+                        <input
+                            id="device-name"
+                            type="text"
+                            autocomplete="nickname"
+                            spellcheck="false"
+                            placeholder="e.g. Alex's laptop"
+                            maxlength="80"
+                        />
+
+                        <label for="pair-input">Pairing code</label>
+                        <input
+                            id="pair-input"
+                            type="text"
+                            inputmode="numeric"
+                            autocomplete="one-time-code"
+                            maxlength="6"
+                            placeholder="6-digit code"
+                        />
+
+                        <button
+                            class="btn good wide"
+                            id="pair-button"
+                            type="submit"
+                        >
+                            🔗 Pair this device
+                        </button>
+                    </form>
+                </aside>
+            </section>
+            <!-- /hero -->
+
+            <!-- ── Main two-column grid ──────────────────────────── -->
+            <section
+                class="grid"
+                aria-label="File transfer and device management"
+            >
+                <!-- ── Left column ── -->
+                <div>
+                    <!-- Drop zone + send panel -->
+                    <section class="card panel" aria-labelledby="drop-heading">
+                        <!-- Drop area -->
+                        <div
+                            id="dropzone"
+                            class="dropzone"
+                            role="button"
+                            tabindex="0"
+                            aria-label="Drop zone — click or drag files here"
+                        >
+                            <div>
+                                <div class="drop-icon" aria-hidden="true">
+                                    ⇄
+                                </div>
+                                <h2 id="drop-heading">
+                                    Drop files or folders here
+                                </h2>
+                                <p>
+                                    Drag items from your desktop, pick them with
+                                    the gesture pad, or arm
+                                    <strong>super drag</strong> to capture a
+                                    drop and relay it instantly to a paired
+                                    device. Folder structure is preserved.
+                                </p>
+                                <div
+                                    class="actions center"
+                                    role="group"
+                                    aria-label="File selection"
+                                >
+                                    <button
+                                        class="btn primary"
+                                        id="select-files"
+                                        type="button"
+                                    >
+                                        Select files
+                                    </button>
+                                    <button
+                                        class="btn"
+                                        id="select-folder"
+                                        type="button"
+                                    >
+                                        Select folder
+                                    </button>
+                                    <button
+                                        class="btn warn"
+                                        id="clear-files"
+                                        type="button"
+                                    >
+                                        Clear selection
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Hidden file inputs -->
+                        <input
+                            class="hidden"
+                            id="file-picker"
+                            type="file"
+                            multiple
+                            aria-hidden="true"
+                        />
+                        <input
+                            class="hidden"
+                            id="folder-picker"
+                            type="file"
+                            multiple
+                            webkitdirectory
+                            directory
+                            aria-hidden="true"
+                        />
+
+                        <!-- Selected files header + send button -->
+                        <div class="panel-head" style="margin-top: 22px">
+                            <div>
+                                <h2>Ready to send</h2>
+                                <p class="muted small">
+                                    Select a target device on the right, or send
+                                    directly to the host's shared inbox.
+                                </p>
+                            </div>
+                            <button
+                                class="btn good"
+                                id="send-button"
+                                type="button"
+                                disabled
+                            >
+                                ↑ Send selected items
+                            </button>
+                        </div>
+
+                        <!-- Selected file list (populated by JS) -->
+                        <div
+                            id="selected-list"
+                            class="list"
+                            aria-live="polite"
+                            aria-label="Selected files"
+                        >
+                            <div class="empty">No files selected yet.</div>
+                        </div>
+
+                        <!-- Upload progress bar -->
+                        <div
+                            id="progress-wrap"
+                            class="progress"
+                            hidden
+                            aria-label="Upload progress"
+                        >
+                            <span
+                                id="progress-bar"
+                                role="progressbar"
+                                aria-valuemin="0"
+                                aria-valuemax="100"
+                                aria-valuenow="0"
+                            ></span>
+                        </div>
+                    </section>
+                    <!-- /drop + send panel -->
+
+                    <!-- Gesture pad panel -->
+                    <section
+                        class="card panel"
+                        aria-labelledby="gesture-heading"
+                    >
+                        <div class="panel-head">
+                            <div>
+                                <h2 id="gesture-heading">Gesture drop pad</h2>
+                                <p class="muted small">
+                                    Press &amp; hold to <strong>pick</strong>,
+                                    drag across the pad, then release to
+                                    <strong>drop</strong>. Touch screens and
+                                    styluses fully supported.
+                                </p>
+                            </div>
+                            <button
+                                class="btn"
+                                id="cancel-gesture"
+                                type="button"
+                            >
+                                ✕ Cancel
+                            </button>
+                        </div>
+
+                        <div
+                            id="gesture-pad"
+                            class="gesture-pad"
+                            aria-label="Gesture pad — press and hold to begin a pick gesture"
+                            role="application"
+                        >
+                            <span
+                                id="gesture-cursor"
+                                class="gesture-cursor"
+                                aria-hidden="true"
+                            ></span>
+                            <div class="gesture-help">
+                                <p>
+                                    <strong>Pick</strong> → move →
+                                    <strong>drop</strong>
+                                </p>
+                                <p class="muted small">
+                                    Live position signals are broadcast to all
+                                    paired devices. Releasing while files are
+                                    selected triggers an automatic send.
+                                </p>
+                            </div>
+                        </div>
+                    </section>
+                    <!-- /gesture pad -->
+                </div>
+                <!-- /left column -->
+
+                <!-- ── Right sidebar ── -->
+                <aside aria-label="Devices, notes, and transfer history">
+                    <!-- Device list -->
+                    <section
+                        class="card panel"
+                        aria-labelledby="devices-heading"
+                    >
+                        <h2 id="devices-heading">Nearby trusted devices</h2>
+                        <p class="muted small">
+                            Devices appear here after pairing with the 6-digit
+                            code above. Click a device to set it as the send
+                            target.
+                        </p>
+                        <div
+                            id="device-list"
+                            class="list"
+                            aria-live="polite"
+                            aria-label="Paired devices"
+                        >
+                            <div class="empty">No paired devices yet.</div>
+                        </div>
+                    </section>
+
+                    <!-- Transfer note + target controls -->
+                    <section class="card panel" aria-labelledby="note-heading">
+                        <h2 id="note-heading">Transfer note</h2>
+
+                        <label for="transfer-note"
+                            >Optional message to recipient</label
+                        >
+                        <textarea
+                            id="transfer-note"
+                            placeholder="e.g. Slides from today's meeting"
+                            maxlength="500"
+                        ></textarea>
+
+                        <div class="two">
+                            <button class="btn" id="target-host" type="button">
+                                🗄 Host inbox
+                            </button>
+                            <button
+                                class="btn danger"
+                                id="forget-target"
+                                type="button"
+                            >
+                                ✕ Clear target
+                            </button>
+                        </div>
+                    </section>
+
+                    <!-- Transfer history -->
+                    <section
+                        class="card panel"
+                        aria-labelledby="history-heading"
+                    >
+                        <div class="panel-head">
+                            <div>
+                                <h2 id="history-heading">Recent transfers</h2>
+                                <p class="muted small">
+                                    Files received on this host are saved to
+                                    <code>shared-inbox/</code>.
+                                </p>
+                            </div>
+                            <button
+                                class="btn"
+                                id="refresh-history"
+                                type="button"
+                            >
+                                ↻ Reload
+                            </button>
+                        </div>
+                        <div
+                            id="history-list"
+                            class="list"
+                            aria-live="polite"
+                            aria-label="Recent transfers"
+                        >
+                            <div class="empty">No transfers yet.</div>
+                        </div>
+                    </section>
+                </aside>
+                <!-- /right sidebar -->
+            </section>
+            <!-- /grid -->
+        </main>
+        <!-- /shell -->
+
+        <!-- Toast notification container -->
+        <div
+            id="toast-region"
+            class="toast-region"
+            aria-live="assertive"
+            aria-atomic="false"
+            role="status"
+        ></div>
+
+        <script src="/app.js"></script>
+    </body>
+</html>
