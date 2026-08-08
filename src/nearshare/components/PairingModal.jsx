@@ -2,9 +2,15 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useApp } from '../store/AppContext.jsx'
 import NetworkDiagnostics from './NetworkDiagnostics.jsx'
-import { apiUrl } from '../lib/serverUrl'
+import { apiUrl, getServerBase } from '../lib/serverUrl'
+import { copyTextToClipboard } from '../lib/clipboard'
 import Typewriter from './Typewriter.jsx'
 import ServerSetting from './ServerSetting'
+import {
+  classifyError,
+  ERROR_CATALOG,
+  ConnectionError,
+} from '../lib/connectionDiagnostics.js'
 
 // ─── Spin keyframe (injected once) ───────────────────────────────────────────
 
@@ -100,7 +106,8 @@ export default function PairingModal() {
   )
   const [code, setCode]           = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [formError, setFormError]   = useState(null)
+  const [formError, setFormError]   = useState(null)  // ConnectionError | string
+  const [infoError, setInfoError]   = useState(null)  // ConnectionError | null
 
   // ── Remote data ─────────────────────────────────────────────────────────────
   const [serverInfo, setServerInfo] = useState(null)
@@ -120,21 +127,43 @@ export default function PairingModal() {
     let cancelled = false
 
     fetch(apiUrl('/api/info'))
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) {
+          throw Object.assign(new Error(`Server returned ${r.status}`), { status: r.status })
+        }
+        return r.json()
+      })
       .then((data) => {
         if (cancelled) return
         setServerInfo(data)
-        // Persist pairing code into global state (used by socket reconnect etc.)
+        setInfoError(null)
+        dispatch({
+          type: 'LOG_EVENT',
+          payload: {
+            category: 'network',
+            level: 'info',
+            message: 'Fetched backend info',
+            data: { hasPairingCode: Boolean(data.pairingCode), lanCount: data?.lanAddresses?.length || 0 },
+          },
+        })
         if (data.pairingCode) {
           dispatch({ type: 'SET_SERVER_INFO', payload: data })
         }
-        // Fetch QR code for easy scanning
         fetch(apiUrl('/api/qr'))
           .then((r) => r.json())
           .then((qr) => { if (!cancelled) setQrDataUrl(qr.qr) })
           .catch(() => {})
       })
-      .catch(() => {/* info unavailable */})
+      .catch((err) => {
+        if (cancelled) return
+        const ce = classifyError(err, { url: apiUrl('/api/info'), status: err.status })
+        setInfoError(ce)
+        dispatch({ type: 'LOG_ERROR', payload: ce, meta: { url: apiUrl('/api/info') } })
+        dispatch({
+          type: 'LOG_EVENT',
+          payload: { category: 'network', level: 'error', message: 'Failed to fetch backend info', data: { error: ce.reason } },
+        })
+      })
 
     return () => { cancelled = true }
   }, [dispatch])
@@ -165,7 +194,7 @@ export default function PairingModal() {
     const trimmedName = deviceName.trim() || state.deviceName
 
     if (trimmedCode.length < 4) {
-      setFormError('Please enter the pairing code (at least 4 digits).')
+      setFormError(ERROR_CATALOG.INVALID_PAIRING_CODE())
       codeInputRef.current?.focus()
       return
     }
@@ -190,13 +219,35 @@ export default function PairingModal() {
       const data = await res.json()
 
       if (!res.ok || data.ok === false) {
-        throw new Error(data.error || `Server error ${res.status}`)
+        throw Object.assign(
+          new Error(data.error || `Server error ${res.status}`),
+          { status: res.status }
+        )
       }
 
       // Triggers useSocket to connect (state.paired flips to true)
       dispatch({ type: 'PAIR', payload: trimmedCode })
+      dispatch({
+        type: 'LOG_EVENT',
+        payload: {
+          category: 'pairing',
+          level: 'info',
+          message: 'Pairing request accepted',
+          data: { codeLength: trimmedCode.length },
+        },
+      })
     } catch (err) {
-      setFormError(err.message || 'Pairing failed — check the code and try again.')
+      const ce = classifyError(err, {
+        url: apiUrl('/api/pair'),
+        status: err.status,
+        device: state.deviceId,
+      })
+      setFormError(ce)
+      dispatch({ type: 'LOG_ERROR', payload: ce, meta: { url: apiUrl('/api/pair') } })
+      dispatch({
+        type: 'LOG_EVENT',
+        payload: { category: 'pairing', level: 'error', message: 'Pairing failed', data: { error: ce.reason, code: ce.code } },
+      })
     } finally {
       setSubmitting(false)
     }
@@ -632,28 +683,118 @@ export default function PairingModal() {
               />
             </div>
 
-            {/* Inline error */}
+            {/* Server unreachable banner — shown when /api/info fetch fails */}
+            <AnimatePresence mode="wait">
+              {infoError && (
+                <motion.div
+                  key="info-error"
+                  initial={{ opacity: 0, y: -6, height: 0 }}
+                  animate={{ opacity: 1, y: 0, height: 'auto' }}
+                  exit={{ opacity: 0, y: -4, height: 0 }}
+                  transition={{ duration: 0.18 }}
+                  style={{
+                    margin: '0 0 8px', padding: '14px 16px', borderRadius: 12,
+                    background: 'rgba(217,96,95,0.08)',
+                    border: '1px solid rgba(217,96,95,0.22)',
+                    fontSize: '0.79rem', lineHeight: 1.5,
+                  }}
+                >
+                  <div style={{ fontWeight: 700, color: 'var(--bad)', marginBottom: 6 }}>
+                    {String.fromCodePoint(0x26A0)} {infoError.reason}
+                  </div>
+                  {infoError.detected && (
+                    <div style={{ color: 'var(--text-2)', fontSize: '0.75rem', marginBottom: 6 }}>
+                      Detected: <code style={{ background: 'var(--pewter-soft)', padding: '1px 5px', borderRadius: 4 }}>{infoError.detected}</code>
+                    </div>
+                  )}
+                  {infoError.possibleCauses?.length > 0 && (
+                    <div style={{ color: 'var(--text-3)', fontSize: '0.73rem', marginBottom: 4 }}>
+                      Possible causes:
+                      <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                        {infoError.possibleCauses.map((c, i) => <li key={i}>{c}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {infoError.suggestedFix && (
+                    <div style={{ color: 'var(--text-2)', fontSize: '0.73rem', fontStyle: 'italic' }}>
+                      {infoError.suggestedFix}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button type="button" className="ns-btn sm" onClick={() => window.location.reload()}>
+                      Retry
+                    </button>
+                    <button type="button" className="ns-btn pewter sm"
+                      onClick={() => {
+                        const txt = infoError.toDiagnosticText?.() || infoError.reason
+                        copyTextToClipboard(txt)
+                      }}>
+                      Copy Diagnostics
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Inline form error */}
             <AnimatePresence mode="wait">
               {formError && (
-                <motion.p
+                <motion.div
                   key="form-error"
                   initial={{ opacity: 0, y: -6, height: 0 }}
                   animate={{ opacity: 1, y: 0, height: 'auto' }}
                   exit={{ opacity: 0, y: -4, height: 0 }}
                   transition={{ duration: 0.18 }}
                   style={{
-                    margin:     0,
-                    padding:    '9px 13px',
-                    borderRadius: 10,
-                    background: 'rgba(217,96,95,0.10)',
-                    border:     '1px solid rgba(217,96,95,0.28)',
-                    color:      'var(--bad)',
-                    fontSize:   '0.86rem',
-                    lineHeight: 1.45,
+                    margin: 0, padding: '13px 15px', borderRadius: 12,
+                    background: 'rgba(217,96,95,0.08)',
+                    border: '1px solid rgba(217,96,95,0.25)',
+                    fontSize: '0.79rem', lineHeight: 1.5,
                   }}
                 >
-                  ✕ {formError}
-                </motion.p>
+                  {formError instanceof ConnectionError ? (
+                    <>
+                      <div style={{ fontWeight: 700, color: 'var(--bad)', marginBottom: 4 }}>
+                        {formError.reason}
+                      </div>
+                      {formError.detected && (
+                        <div style={{ color: 'var(--text-2)', fontSize: '0.73rem', marginBottom: 4 }}>
+                          Detected: <code style={{ background: 'var(--pewter-soft)', padding: '1px 5px', borderRadius: 4 }}>{formError.detected}</code>
+                        </div>
+                      )}
+                      {formError.possibleCauses?.length > 0 && (
+                        <div style={{ color: 'var(--text-3)', fontSize: '0.71rem', marginBottom: 4 }}>
+                          Possible causes:
+                          <ul style={{ margin: '3px 0 0', paddingLeft: 16 }}>
+                            {formError.possibleCauses.map((c, i) => <li key={i}>{c}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {formError.suggestedFix && (
+                        <div style={{ color: 'var(--text-2)', fontSize: '0.71rem', fontStyle: 'italic' }}>
+                          Suggested fix: {formError.suggestedFix}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <button type="button" className="ns-btn sm"
+                          onClick={() => { setFormError(null); document.querySelector('form')?.requestSubmit() }}>
+                          Retry
+                        </button>
+                        <button type="button" className="ns-btn pewter sm"
+                          onClick={() => {
+                            const txt = formError.toDiagnosticText?.() || formError.reason
+                            copyTextToClipboard(txt)
+                          }}>
+                          Copy Diagnostics
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{String(formError)}</span>
+                    </>
+                  )}
+                </motion.div>
               )}
             </AnimatePresence>
 

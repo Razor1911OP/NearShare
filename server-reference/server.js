@@ -18,10 +18,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = Number.parseInt(process.env.PORT || "8787", 10);
-const HOST = process.env.HOST || "0.0.0.0";
+const HOST = process.env.HOST || "::";
 const DEVICE_HOST = String(process.env.DEVICE_HOST || "").trim();
-const DIST_DIR = path.join(__dirname, "dist");
-const INBOX_DIR = path.join(__dirname, "shared-inbox");
+// __dirname = server-reference/ — standalone NearShare frontend build outputs to dist/
+const PROJECT_ROOT = path.join(__dirname, "..");
+const DIST_DIR = path.join(PROJECT_ROOT, "dist");
+const INBOX_DIR = path.join(PROJECT_ROOT, "shared-inbox");
 const MAX_FILE_BYTES = Number.parseInt(
   process.env.MAX_FILE_SIZE_BYTES || String(2 * 1024 * 1024 * 1024),
   10,

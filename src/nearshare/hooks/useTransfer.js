@@ -119,6 +119,15 @@ export default function useTransfer(sendMessage) {
       setUploadStats(null)
 
       const totalBytes = staged.reduce((sum, e) => sum + (e.file?.size || 0), 0)
+      dispatch({
+        type: 'LOG_EVENT',
+        payload: {
+          category: 'transfer',
+          level: 'info',
+          message: 'Transfer started',
+          data: { fileCount: staged.length, totalBytes, targetId },
+        },
+      })
       const effectiveTarget = targetId === 'host' ? '' : targetId
       const resumeKey = makeResumeKey(state.deviceId, effectiveTarget || 'host', staged)
       const rememberedUploadId = localStorage.getItem(resumeKey) || ''
@@ -284,6 +293,28 @@ export default function useTransfer(sendMessage) {
           })
         }
 
+        const finishedAt = Date.now()
+        const elapsedMs = Math.max(1, finishedAt - startedAt)
+        const avgBps = totalBytes > 0 ? (totalBytes * 1000) / elapsedMs : 0
+        dispatch({
+          type: 'SET_LAST_TRANSFER',
+          payload: {
+            bytes: totalBytes,
+            bps: avgBps,
+            at: new Date(finishedAt).toISOString(),
+            targetName: effectiveTarget || 'host',
+          },
+        })
+        dispatch({
+          type: 'LOG_EVENT',
+          payload: {
+            category: 'transfer',
+            level: 'info',
+            message: 'Transfer completed',
+            data: { fileCount: staged.length, totalBytes, elapsedMs, avgBps },
+          },
+        })
+
         return completeBody
       } catch (err) {
         dispatch({
@@ -296,6 +327,15 @@ export default function useTransfer(sendMessage) {
             note,
             gestureMode,
             entries: staged,
+          },
+        })
+        dispatch({
+          type: 'LOG_EVENT',
+          payload: {
+            category: 'transfer',
+            level: 'error',
+            message: 'Transfer failed',
+            data: { error: err?.message || 'Upload failed', fileCount: staged.length, totalBytes },
           },
         })
         dispatch({

@@ -12,8 +12,12 @@ import { AppProvider, useApp } from './store/AppContext.jsx'
 import { useSocket } from './hooks/useSocket.js'
 import { ToastContainer } from './components/ui/Toast.jsx'
 import PairingModal from './components/PairingModal.jsx'
+import ConnectionStatusBar from './components/ConnectionStatusBar.jsx'
+import DeveloperDiagnostics from './components/DeveloperDiagnostics.jsx'
+import DiagnosticsPage from './components/DiagnosticsPage.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { apiUrl } from './lib/serverUrl'
+import { ConnectionError, ErrorCategory, ErrorSeverity } from './lib/connectionDiagnostics.js'
 
 // ─── SendMsg Context ──────────────────────────────────────────────────────────
 // Provides a stable sendMessage function reference throughout the tree,
@@ -224,12 +228,62 @@ function AppInner() {
     return () => clearInterval(timer)
   }, [state.deviceName])
 
+  // ── Runtime error capture for diagnostics page ──────────────────────────────
+  useEffect(() => {
+    const onError = (event) => {
+      const ce = new ConnectionError({
+        code: 'ERR_REACT_RUNTIME',
+        category: ErrorCategory.UNKNOWN,
+        severity: ErrorSeverity.ERROR,
+        reason: event?.message || 'Runtime error',
+        detected: event?.filename ? `${event.filename}:${event.lineno || '?'}:${event.colno || '?'}` : '',
+        suggestedFix: 'Inspect stack trace in developer diagnostics and update the failing component.',
+        raw: event?.error || null,
+        transport: 'ui',
+      })
+      dispatch({ type: 'LOG_ERROR', payload: ce })
+      dispatch({
+        type: 'LOG_EVENT',
+        payload: { category: 'react', level: 'error', message: ce.reason, data: { stack: ce.stack || '' } },
+      })
+    }
+
+    const onUnhandledRejection = (event) => {
+      const reason = event?.reason
+      const ce = new ConnectionError({
+        code: 'ERR_UNHANDLED_PROMISE',
+        category: ErrorCategory.UNKNOWN,
+        severity: ErrorSeverity.ERROR,
+        reason: reason?.message || 'Unhandled promise rejection',
+        suggestedFix: 'Handle promise rejections in async workflows.',
+        raw: reason,
+        transport: 'ui',
+      })
+      dispatch({ type: 'LOG_ERROR', payload: ce })
+      dispatch({
+        type: 'LOG_EVENT',
+        payload: { category: 'react', level: 'error', message: ce.reason, data: { stack: ce.stack || '' } },
+      })
+    }
+
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onUnhandledRejection)
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onUnhandledRejection)
+    }
+  }, [dispatch])
+
   // ── Derived flags ───────────────────────────────────────────────────────────
   const showPairing = state.paired === false
+  const [showDiagnosticsPage, setShowDiagnosticsPage] = useState(false)
 
   return (
     <SendMsgContext.Provider value={stableSend}>
       <style>{SPIN_STYLE}</style>
+
+      {/* ── Connection status bar — always visible ── */}
+      <ConnectionStatusBar />
 
       {/* ── Lazy layout — Suspense handles the async chunk load ── */}
       <Suspense fallback={<LoadingSpinner />}>
@@ -244,6 +298,28 @@ function AppInner() {
 
       {/* ── Toast region — always mounted, renders nothing when empty ── */}
       <ToastContainer />
+
+      {/* ── Developer diagnostics toggle ── */}
+      <DeveloperDiagnostics />
+
+      {/* ── Production diagnostics page ── */}
+      <button
+        type="button"
+        className="ns-btn ghost sm"
+        onClick={() => setShowDiagnosticsPage(true)}
+        style={{
+          position: 'fixed',
+          left: 12,
+          bottom: 44,
+          zIndex: 95,
+          fontSize: '0.75rem',
+          padding: '6px 10px',
+          opacity: 0.92,
+        }}
+      >
+        🩺 Diagnostics
+      </button>
+      <DiagnosticsPage open={showDiagnosticsPage} onClose={() => setShowDiagnosticsPage(false)} />
     </SendMsgContext.Provider>
   )
 }

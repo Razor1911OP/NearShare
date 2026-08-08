@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useReducer } from 'react'
+import { ConnectionState, classifyError } from '../lib/connectionDiagnostics.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -88,9 +89,16 @@ const initialState = {
   paired:           false,
   pairingCode:      '',
   serverInfo:       null,
-  socketStatus:     'disconnected',   // 'disconnected' | 'connecting' | 'connected'
+  socketStatus:     ConnectionState.DISCONNECTED,
+  connectionState:  ConnectionState.DISCONNECTED,
   devices:          [],               // [{id,name,online,trusted,pairedAt,lastSeenAt}]
   selectedTargetId: 'host',           // device id or 'host'
+  errorLog:         [],               // ConnectionError[] — recent diagnostics
+  eventLog:         [],               // structured operational logs for diagnostics page
+  latencyMs:        null,             // number | null — last measured RTT
+  developerMode:    false,            // toggle for verbose error details
+  lastPairingAt:    null,             // ISO timestamp of last successful pairing
+  lastTransfer:     null,             // {bytes,bps,at,targetName} | null
   selectedFiles:    [],               // [{file:File, relativePath:string, preview:string|null, key:string}]
   transfers:        [],               // recent upload records
   failedTransfers:  [],               // [{id,at,error,targetId,note,entries}] retryable failures
@@ -116,7 +124,12 @@ function reducer(state, action) {
       return { ...state, pairingCode: action.payload }
 
     case 'PAIR':
-      return { ...state, paired: true, pairingCode: action.payload ?? state.pairingCode }
+      return {
+        ...state,
+        paired: true,
+        pairingCode: action.payload ?? state.pairingCode,
+        lastPairingAt: new Date().toISOString(),
+      }
 
     case 'UNPAIR':
       return {
@@ -129,8 +142,57 @@ function reducer(state, action) {
         incomingDrag:     null,
       }
 
-    case 'SET_SOCKET_STATUS':
-      return { ...state, socketStatus: action.payload }
+    case 'SET_SOCKET_STATUS': {
+      const status = action.payload
+      const mapped =
+        status === 'connected' ? ConnectionState.CONNECTED :
+        status === 'connecting' ? ConnectionState.NEGOTIATING :
+        ConnectionState.DISCONNECTED
+      return { ...state, socketStatus: status, connectionState: mapped }
+    }
+
+    case 'SET_CONNECTION_STATE':
+      return { ...state, connectionState: action.payload }
+
+    case 'LOG_ERROR': {
+      const entry = action.payload instanceof Error
+        ? classifyError(action.payload, action.meta || {})
+        : action.payload
+      return {
+        ...state,
+        errorLog: [entry, ...state.errorLog].slice(0, 50),
+      }
+    }
+
+    case 'CLEAR_ERROR_LOG':
+      return { ...state, errorLog: [] }
+
+    case 'LOG_EVENT': {
+      const entry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        at: new Date().toISOString(),
+        category: action.payload?.category || 'app',
+        level: action.payload?.level || 'info',
+        message: action.payload?.message || '',
+        data: action.payload?.data || null,
+      }
+      return {
+        ...state,
+        eventLog: [entry, ...state.eventLog].slice(0, 200),
+      }
+    }
+
+    case 'CLEAR_EVENT_LOG':
+      return { ...state, eventLog: [] }
+
+    case 'SET_LATENCY':
+      return { ...state, latencyMs: action.payload }
+
+    case 'SET_LAST_TRANSFER':
+      return { ...state, lastTransfer: action.payload }
+
+    case 'TOGGLE_DEVELOPER_MODE':
+      return { ...state, developerMode: !state.developerMode }
 
     // ── Devices / Target ─────────────────────────────────────────────────────
 

@@ -2,6 +2,13 @@
 # Dependencies
 # =========================
 node_modules/
+shared-inbox/
+server-reference/shared-inbox/
+
+# Runtime generated data (never commit)
+public/uploads/
+*.session.json
+*.upload.json
 
 # Package managers
 .pnpm-store/
@@ -24,6 +31,7 @@ build/
 .nitro/
 .vercel/
 .cloudflare/
+.wrangler/
 
 # TanStack / Vite cache
 .vite/
